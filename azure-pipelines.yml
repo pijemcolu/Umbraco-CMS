@@ -1,0 +1,150 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+- master
+
+pool:
+  vmImage: 'windows-2019'
+
+parameters:
+  - name: MajorVersion
+    default: 11
+  - name: MinorVersion
+    default: 0
+  - name: PatchVersion
+    default: 0
+
+steps:
+- task: NuGetToolInstaller@1
+  inputs:
+    versionSpec: 
+    checkLatest: true
+  displayName: 'Install nuget'
+- task: NuGetCommand@2
+  inputs:
+    command: 'restore'
+    restoreSolution: 'src\umbraco.sln'
+    feedsToUse: 'config'
+  displayName: 'Nuget restore'
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "Working folder: $pwd"
+      $ubuild = build/build.ps1 -get -continue
+      
+      $version = $ubuild.GetUmbracoVersion()
+      # SOURCED METHOD FROM : https://github.com/umbraco/Umbraco-Build/blob/master/ps/GetUmbracoVersion.ps1
+      # WHY ARE WE READING THE UMBRACO VERSION FROM THE FILESYSTEM?
+      # ISN'T IT ON BUILD TIME THAT WE SET THE VERSION?
+      if ($version.Comment -ne "")
+      {
+        # 8.0.0-beta.33.1234
+        $continuous = "$($version.Semver).$(Build.BuildNumber)"
+      }
+      else
+      {
+        # 8.0.0-alpha.1234
+        $continuous = "$($version.Release)-alpha.$(Build.BuildNumber)"
+      }
+
+      $ubuild.SetUmbracoVersion($continuous)
+      # SOURCED METHOD FROM : https://github.com/umbraco/Umbraco-Build/blob/master/ps/SetUmbracoVersion.ps1
+      # UPDATE SOLUTIONINFO.CS WITH:
+      # - AssemblyFileVersion
+      # - AssemblyInformationalVersion
+      # - AssemblyCopyright
+      # SETUMBRACOVERSION ALSO CALLS
+      # - ExpressPortUpdater https://github.com/umbraco/Umbraco-Build/blob/master/src/Umbraco.Build/ExpressPortUpdater.cs
+      # - sets https://github.com/umbraco/Umbraco-CMS/blob/v8/contrib/src/Umbraco.Web.UI/Umbraco.Web.UI.csproj#L348
+      # - DevelopmentServerPort = {{ parameters.MajorVersion }}{{ parameters.MinorVersion }}{{ parameters.PatchVersion }} * 10
+      # - IISUrl = http://localhost:DevelopmentServerPort
+      
+      Write-Host "Building: $continuous"
+  displayName: 'Set Umbraco version'
+
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "Working folder: $pwd"
+      $ubuild = build/build.ps1 -get
+      
+      $ubuild.PrepareBuild("vso")
+      # COPIES \src\Umbraco.Web.UI\web.Template.config to \src\Umbraco.Web.UI\web.config
+      Copy-Item -Force \src\Umbraco.Web.UI\web.Template.config \src\Umbraco.Web.UI\web.config
+
+      # SETS Azure Devops build variables
+      # - UMBRACO_VERSION = {{ parameters.MajorVersion }}.{{ parameters.MinorVersion }}.{{ parameters.PatchVersion }}
+      # - UMBRACO_RELEASE = ...
+      # - UMBRACO_COMMENT = ...
+      # - UMBRACO_BUILD = ...
+      # - UMBRACO_TMP = build.tmp
+  displayName: 'Prepare build'
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "Working folder: $pwd"
+      $ubuild = build/build.ps1 -get
+
+      $ubuild.PrepareTests()
+      
+      # CREATES a directory \tests\Packaging\Packages
+      # COPIES directory \src\Umbraco.Tests\Packaging\Packages to \tests\Packaging\Packages
+      # CREATES a directory \tests\bin
+  displayName: 'Prepare tests'
+- task: VSBuild@1
+  inputs:
+    solution: 'src\Umbraco.Tests\Umbraco.Tests.csproj'
+    vsVersion: '16.0'
+    msbuildArgs: '/p:UseWPP_CopyWebApplication=True /p:PipelineDependsOnBuild=False /p:OutDir=%UMBRACO_TMP%\tests\ /t:Build /p:UmbracoBuild=True'
+    platform: '$(BuildPlatform)'
+    configuration: '$(BuildConfiguration)'
+  displayName: 'Build Tests'
+- task: VSTest@2
+  inputs:
+    testSelector: 'testAssemblies'
+    testAssemblyVer2: 'build.tmp\tests\Umbraco.Tests.dll'
+    searchFolder: '$(System.DefaultWorkingDirectory)'
+    vsTestVersion: '16.0'
+    pathtoCustomTestAdapters: '$(UserProfile)\.nuget\packages'
+    runInParallel: true
+    platform: '$(BuildPlatform)'
+    configuration: '$(BuildConfiguration)' 
+  displayName: 'Run tests'
+- task: UseNode@1
+  inputs:
+    version: '11.x'
+  displayName: 'Use Node 11.x'
+- task: Npm@1
+  inputs:
+    command: 'install'
+    workingDir: 'src/Umbraco.Web.UI.Client'
+  displayName: 'Npm install'
+- task: gulp@1
+  inputs:
+    gulpFile: 'src/Umbraco.Web.UI.Client/gulpfile.js'
+    targets: 'build'
+    publishJUnitResults: true
+    testResultsFiles: '**/TESTS-*.xml'
+    enableCodeCoverage: false
+  displayName: 'Gulp build'
+- task: VSBuild@1
+  inputs:
+    solution: 'src\Umbraco.Web.UI\Umbraco.Web.UI.csproj'
+    vsVersion: '16.0'
+    msbuildArgs: '/p:UseWPP_CopyWebApplication=True /p:PipelineDependsOnBuild=False /p:OutDir=%UMBRACO_TMP%\bin\ /p:WebProjectOutputDir=%UMBRACO_TMP%\WebApp\ /t:Clean;Rebuild /p:UmbracoBuild=True'
+    platform: '$(BuildPlatform)'
+    configuration: '$(BuildConfiguration)'
+  displayName: 'Build Umbraco'
+
+
+
+- script: |
+    echo Add other tasks to build, test, and deploy your project.
+    echo See https://aka.ms/yaml
+  displayName: 'Run a multi-line script'
