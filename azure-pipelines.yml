@@ -16,6 +16,10 @@ parameters:
     default: 0
   - name: PatchVersion
     default: 0
+  - name: BuildConfiguration
+    default: release
+  - name: BuildPlatform
+    default: AnyCPU
 
 steps:
 - task: NuGetToolInstaller@1
