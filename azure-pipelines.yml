@@ -75,7 +75,7 @@ steps:
       
       $ubuild.PrepareBuild("vso")
       # COPIES \src\Umbraco.Web.UI\web.Template.config to \src\Umbraco.Web.UI\web.config
-      Copy-Item -Force \src\Umbraco.Web.UI\web.Template.config \src\Umbraco.Web.UI\web.config
+      # Copy-Item -Force \src\Umbraco.Web.UI\web.Template.config \src\Umbraco.Web.UI\web.config
 
       # SETS Azure Devops build variables
       # - UMBRACO_VERSION = {{ parameters.MajorVersion }}.{{ parameters.MinorVersion }}.{{ parameters.PatchVersion }}
