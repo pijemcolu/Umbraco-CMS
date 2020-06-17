@@ -117,8 +117,8 @@ steps:
     vsTestVersion: '16.0'
     pathtoCustomTestAdapters: '$(UserProfile)\.nuget\packages'
     runInParallel: true
-    platform: '$(BuildPlatform)'
-    configuration: '$(BuildConfiguration)' 
+    platform: '${{ parameters.BuildPlatform }}'
+    configuration: '${{ parameters.BuildConfiguration }}' 
   displayName: 'Run tests'
 - task: UseNode@1
   inputs:
@@ -142,13 +142,97 @@ steps:
     solution: 'src\Umbraco.Web.UI\Umbraco.Web.UI.csproj'
     vsVersion: '16.0'
     msbuildArgs: '/p:UseWPP_CopyWebApplication=True /p:PipelineDependsOnBuild=False /p:OutDir=%UMBRACO_TMP%\bin\ /p:WebProjectOutputDir=%UMBRACO_TMP%\WebApp\ /t:Clean;Rebuild /p:UmbracoBuild=True'
-    platform: '$(BuildPlatform)'
-    configuration: '$(BuildConfiguration)'
+    platform: '${{ parameters.BuildPlatform }}'
+    configuration: '${{ parameters.BuildConfiguration }}' 
   displayName: 'Build Umbraco'
-
-
-
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "Working folder: $pwd"
+      $ubuild = build/build.ps1 -get -continue
+      
+      $ubuild.PreparePackages()
+      
+      $ubuild.PackageZip()
+    failOnStderr: true
+  displayName: 'Prepare Packages & Zip'
+- task: CopyFiles@2
+  inputs:
+    SourceFolder: 'build.out'
+    Contents: '*.zip'
+    TargetFolder: '$(build.artifactstagingdirectory)'
+    CleanTargetFolder: true
+  displayName: 'Copy Zip Files to Staging'
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'zips'
+    publishLocation: 'Container'
+  displayName: 'Publish Zip Files'
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "Working folder: $pwd"
+      $ubuild = build/build.ps1 -get -continue
+      
+      $ubuild.VerifyNuGet()
+      $ubuild.PrepareNuGet()
+    failOnStderr: true
+  displayName: 'Verify & Prepare NuGet'
+- task: NuGetCommand@2
+  inputs:
+    command: 'pack'
+    packagesToPack: 'build\NuSpecs\UmbracoCms.Core.nuspec'
+    configuration: '${{ parameters.BuildPlatform }}'
+    packDestination: 'build.out'
+    versioningScheme: 'byEnvVar'
+    versionEnvVar: 'UMBRACO_VERSION'
+    buildProperties: 'BuildTmp=$(UMBRACO_TMP)'
+  displayName: 'Create Cms.Core NuGet Package'
+- task: NuGetCommand@2
+  inputs:
+    command: 'pack'
+    packagesToPack: 'build\NuSpecs\UmbracoCms.Web.nuspec'
+    configuration: '${{ parameters.BuildPlatform }}'
+    packDestination: 'build.out'
+    versioningScheme: 'byEnvVar'
+    versionEnvVar: 'UMBRACO_VERSION'
+    buildProperties: 'BuildTmp=$(UMBRACO_TMP)'
+  displayName: 'Create Cms.Web NuGet Package'
+- task: NuGetCommand@2
+  inputs:
+    command: 'pack'
+    packagesToPack: 'build\NuSpecs\UmbracoCms.nuspec'
+    configuration: '${{ parameters.BuildPlatform }}'
+    packDestination: 'build.out'
+    versioningScheme: 'byEnvVar'
+    versionEnvVar: 'UMBRACO_VERSION'
+    buildProperties: 'BuildTmp=$(UMBRACO_TMP)'
+  displayName: 'Create Cms NuGet Package'
+- task: CopyFiles@2
+  inputs:
+    SourceFolder: 'build.out'
+    Contents: '*.nupkg'
+    TargetFolder: '$(build.artifactstagingdirectory)'
+    CleanTargetFolder: true
+  displayName: 'Copy NuPkg Files to Staging'
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'nupkg'
+    publishLocation: 'Container'
+  displayName: 'Publish NuPkg Files'
+- task: CopyFiles@2
+  inputs:
+    SourceFolder: 'build.tmp'
+    Contents: '*.log'
+    TargetFolder: '$(build.artifactstagingdirectory)'
+  displayName: 'Copy Log Files to Staging'
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: 'logs'
+    publishLocation: 'Container'
+  displayName: 'Publish Log Files'  
