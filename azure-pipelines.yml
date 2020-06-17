@@ -106,8 +106,8 @@ steps:
     solution: 'src\Umbraco.Tests\Umbraco.Tests.csproj'
     vsVersion: '16.0'
     msbuildArgs: '/p:UseWPP_CopyWebApplication=True /p:PipelineDependsOnBuild=False /p:OutDir=%UMBRACO_TMP%\tests\ /t:Build /p:UmbracoBuild=True'
-    platform: '$(BuildPlatform)'
-    configuration: '$(BuildConfiguration)'
+    platform: '${{ parameters.BuildPlatform }}'
+    configuration: '${{ parameters.BuildConfiguration }}'
   displayName: 'Build Tests'
 - task: VSTest@2
   inputs:
